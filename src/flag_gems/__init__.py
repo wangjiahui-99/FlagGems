@@ -1213,6 +1213,8 @@ _FULL_CONFIG = (
     ("sinh_", sinh_),
     ("slice.Tensor", slice),
     ("slice_backward", slice_backward),
+    ("slice_copy.Tensor", slice_copy),
+    ("slice_copy.Tensor_out", slice_copy_out),
     ("slice_scatter", slice_scatter),
     ("slogdet", slogdet),
     ("smooth_l1_loss", smooth_l1_loss),
