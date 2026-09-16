@@ -1030,6 +1030,7 @@ _FULL_CONFIG = (
     ("native_batch_norm", native_batch_norm),
     ("native_batch_norm_backward", batch_norm_backward),
     ("native_batch_norm_backward_reduce", batch_norm_backward_reduce),
+    ("native_channel_shuffle", native_channel_shuffle),
     ("native_dropout", dropout),
     ("native_dropout_backward", native_dropout_backward),
     ("native_group_norm", native_group_norm),
