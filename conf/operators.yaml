@@ -15264,6 +15264,28 @@ ops:
   - Reduction
   stages:
   - beta: '5.4'
+- id: unsafe_index_put
+  description: 'Puts values from the tensor `values` into the tensor `input` using
+    the indices specified
+
+    in `indices` (which is a tuple of Tensors), matching `aten._unsafe_index_put`.
+    The
+
+    unsafe variant skips autograd history recording and assumes the caller passes
+    valid
+
+    indices; it shares the semantics of `index_put`, including the `accumulate`
+    flag.
+
+    '
+  for:
+  - _unsafe_index_put
+  labels:
+  - aten
+  kind:
+  - Tensor
+  stages:
+  - beta: '5.4'
 - id: unsafe_masked_index
   description: Gathers elements from self at given indices where mask is True, filling
     unmasked positions with a scalar value.

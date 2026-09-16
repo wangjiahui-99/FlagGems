@@ -279,6 +279,7 @@ _FULL_CONFIG = (
     ),
     ("_unique2", _unique2),
     ("_unsafe_index", unsafe_index),
+    ("_unsafe_index_put", unsafe_index_put),
     ("_unsafe_masked_index", _unsafe_masked_index),
     ("_unsafe_masked_index_put_accumulate", _unsafe_masked_index_put_accumulate),
     ("_unsafe_view", _unsafe_view),
