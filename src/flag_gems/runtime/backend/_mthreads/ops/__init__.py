@@ -21,6 +21,7 @@ from .any import any, any_dim, any_dims
 from .arange import arange, arange_start
 from .argmin import argmin
 from .argsort import argsort
+from .avg_pool2d import avg_pool2d_backward
 from .batch_norm import batch_norm, batch_norm_backward
 from .bucketize import bucketize
 from .celu import celu
@@ -123,6 +124,7 @@ __all__ = [
     "arange_start",
     "argmin",
     "argsort",
+    "avg_pool2d_backward",
     "batch_norm",
     "batch_norm_backward",
     "bucketize",
