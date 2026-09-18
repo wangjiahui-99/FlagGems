@@ -164,6 +164,7 @@ from flag_gems.ops._thnn_fused_lstm_cell_backward import _thnn_fused_lstm_cell_b
 from flag_gems.ops._thnn_fused_lstm_cell_backward_impl import (
     _thnn_fused_lstm_cell_backward_impl,
 )
+from flag_gems.ops._transformer_encoder_layer_fwd import _transformer_encoder_layer_fwd
 from flag_gems.ops._unsafe_masked_index import _unsafe_masked_index
 from flag_gems.ops._unsafe_masked_index_put_accumulate import (
     _unsafe_masked_index_put_accumulate,
@@ -1283,6 +1284,7 @@ __all__ = [
     "_thnn_fused_lstm_cell",
     "_thnn_fused_lstm_cell_backward",
     "_thnn_fused_lstm_cell_backward_impl",
+    "_transformer_encoder_layer_fwd",
     "_unique2",
     "_unsafe_masked_index",
     "_unsafe_masked_index_put_accumulate",
