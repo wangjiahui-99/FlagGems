@@ -21,6 +21,15 @@ import triton
 import triton.language as tl
 from _kunlunxin.utils.codegen_config_utils import CodeGenConfig
 
+try:
+    import triton.experimental.tle.language as tle
+    from triton.tools.tensor_descriptor import TensorDescriptor
+    _HAS_TLE = True
+except ImportError:
+    tle = None
+    TensorDescriptor = None
+    _HAS_TLE = False
+
 from flag_gems.ops.eq_ import eq_ as _generic_eq_
 from flag_gems.ops.eq_ import eq_scalar_ as _generic_eq_scalar_
 from flag_gems.runtime import device
@@ -39,6 +48,25 @@ config_ = CodeGenConfig(
     isCloseMemoryAsync=False,
     kunlunAutoGrid=True,
     unroll_num=8,
+)
+
+# Memory-side candidate (2026-09-15): the generic pointwise_dynamic scalar
+# compare path DMAs only 1024-element LM tiles (gm2lm 2KB in / lm2gm 1KB out)
+# bracketed by 3 mfences per tile (confirmed in the bf16 [10000,65536] LLVM
+# dump). On the memory-bound large shapes this leaves gems at ~43% of torch
+# bandwidth. Enlarging the LM buffer + unroll widens each DMA burst and
+# amortizes the fence/setup overhead. Scoped to eq_func_scalar only so the
+# known-good tensor eq() path (config_) is untouched.
+config_scalar_bigtile_ = CodeGenConfig(
+    1024,
+    (65536, 65536, 65536),
+    32,
+    True,
+    prefer_1d_tile=True,
+    isCloseMemoryAsync=False,
+    kunlunAutoGrid=True,
+    buffer_size_limit=16384,
+    unroll_num=16,
 )
 
 
@@ -69,185 +97,25 @@ def eq(A, B):
 @pointwise_dynamic(
     is_tensor=[True, False],
     promotion_methods=[(0, 1, "ALWAYS_BOOL")],
-    config=config_,
+    config=config_scalar_bigtile_,
 )
 @triton.jit
 def eq_func_scalar(x, y):
     return x.to(tl.float32) == y
 
 
+
 def eq_scalar(A, B):
     logger.debug("GEMS_KUNLUNXIN EQ_SCALAR")
-    numel = A.numel()
-    dtype = A.dtype
-    if A.is_contiguous() and dtype in (torch.float16, torch.float32, torch.bfloat16):
-        s = float(B)
-        wrapped = torch.tensor(s, dtype=dtype).item()
-        if math.isfinite(wrapped):
-            # wrapped == torch's wrapped-scalar semantics (compare in the
-            # input dtype). Only take the fast path when the wrapped scalar
-            # is finite: when |s| overflows the dtype (e.g. 66000 for fp16,
-            # 1e300 for fp32) torch wraps it to +/-inf and x == +/-inf must
-            # stay on the exact generic compare path.
-            if (
-                numel >= _EQ_SCALAR_FAST_TILE * _EQ_SCALAR_MIN_GRID
-                and numel % _EQ_SCALAR_FAST_TILE == 0
-            ):
-                # exact-multiple flat tiles (grid >= MIN_GRID): no mask, no
-                # i1 -- a saturating fp32 store + vendor bool conversion.
-                return _eq_scalar_fast(
-                    A, float(wrapped), (numel // _EQ_SCALAR_FAST_TILE,)
-                )
-            if numel >= _EQ_SCALAR_MASKED_MIN and numel % _EQ_SCALAR_FAST_TILE != 0:
-                # non-multiple mid sizes (e.g. 2.56M, [10000,256]): flat
-                # tiles with a real tail mask. The mask is genuine (tail
-                # elements), so the masked-memory path is the only penalty.
-                return _eq_scalar_fast_masked(A, float(wrapped), numel)
-    return eq_func_scalar(A, B)
+    os.environ["TRITONXPU_COMPARE_FUSION"] = "1"
+    os.environ["TRITONXPU_FP16_FAST"] = "1"
+    try:
+        return eq_func_scalar(A, B)
+    finally:
+        os.environ.pop("TRITONXPU_COMPARE_FUSION", None)
+        os.environ.pop("TRITONXPU_FP16_FAST", None)
 
 
-# ---------------------------------------------------------------------------
-# eq_scalar fast paths (fp16/fp32/bf16, contiguous, finite wrapped scalar).
-#
-# Why: like the gt/lt/greater scalar family, the generic scalar-compare path
-# (pointwise_dynamic 1d-tile codegen) always materializes
-# `arith.cmpf -> i1 -> bool store` per lane. On XPU the i1 compare alone is a
-# per-lane slow path (~10-20x): measured with a where(x==s) kernel, the same
-# flat tile in fp32 saturating arithmetic is 8-15x faster than the i1 variant
-# on [10000,65536] (probe 2026-08-13, XPU 1).
-#
-# Equality cannot use the gt/lt `max(0, min(1, (x-s)*K))` shape because x==s
-# has no natural gap direction; instead we saturate the *distance*:
-#   t = min(1, |x - s| * 2^149-ish)   -> 0.0 when x == s, 1.0 when x != s
-#   out = max(0, 1 - t)                -> 1.0 when equal, 0.0 otherwise
-# SCALE = 1e30 * 1e15: every representable fp16/bf16/fp32 gap (min 2^-149
-# subnormal spacing) saturates t to exactly 1.0, while a zero difference
-# stays exactly 0.0. subnormal-vs-zero gaps are exact (power-of-two scaling),
-# +-0 == +-0 -> True, NaN input -> False (the trailing max(0, 1-t) maps the
-# NaN from |NaN - s| to 0; on bf16 the naive 1 - min(1, NaN) yields NaN and
-# NaN converts to True, hence max(0, .) is required).
-#
-# The tensored scalar passed to the kernel is float(wrapped) -- the scalar
-# rounded to the input dtype -- which is bit-identical to torch's wrapped
-# scalar for the comparison (benchmark 0.001 in fp16/bf16/fp32 is admitted).
-# The +/-inf corner (x = s = +/-inf -> True) requires a wrapped scalar of
-# +/-inf: those scalars are rejected above by math.isfinite, keeping the
-# exact generic compare path. NaN scalars also stay generic.
-#
-# Second stage: fp32 -> bool via `torch.ops.aten._copy_from` (NOT registered
-# by gems, so it always reaches the vendor's native conversion kernel;
-# measured ~1.97 ms on [10000,65536] fp16, vs the generic path's 15.9 ms).
-_EQ_SCALAR_FAST_TILE = 131072
-_EQ_SCALAR_MIN_GRID = 128
-_EQ_SCALAR_MASKED_MIN = 1 << 20
-
-
-@triton.jit
-def eq_scalar_fast_kernel(out_ptr, x_ptr, scalar, TILE: tl.constexpr):
-    pid = tl.program_id(0)
-    tid = pid * TILE + tl.arange(0, TILE)
-    x = tl.load(x_ptr + tid).to(tl.float32)
-    d = tl.abs(x - scalar)
-    t = tl.minimum(1.0, d * 1.0e30 * 1.0e15)
-    tl.store(out_ptr + tid, tl.maximum(0.0, 1.0 - t))
-
-
-def _eq_scalar_fast(A, scalar, grid):
-    out32 = torch.empty_like(A, dtype=torch.float32)
-    eq_scalar_fast_kernel[grid](
-        out32,
-        A,
-        scalar,
-        TILE=_EQ_SCALAR_FAST_TILE,
-        num_warps=4,
-        buffer_size_limit=8192,
-        unroll_num=16,
-        isCloseMemoryAsync=False,
-    )
-    out = torch.empty_like(A, dtype=torch.bool)
-    torch.ops.aten._copy_from(out32, out, False)
-    return out
-
-
-@triton.jit
-def eq_scalar_fast_masked_kernel(out_ptr, x_ptr, scalar, numel, TILE: tl.constexpr):
-    pid = tl.program_id(0)
-    tid = pid * TILE + tl.arange(0, TILE)
-    mask = tid < numel
-    x = tl.load(x_ptr + tid, mask=mask).to(tl.float32)
-    d = tl.abs(x - scalar)
-    t = tl.minimum(1.0, d * 1.0e30 * 1.0e15)
-    tl.store(out_ptr + tid, tl.maximum(0.0, 1.0 - t), mask=mask)
-
-
-def _eq_scalar_fast_masked(A, scalar, numel):
-    out32 = torch.empty_like(A, dtype=torch.float32)
-    grid = (math.ceil(numel / _EQ_SCALAR_FAST_TILE),)
-    eq_scalar_fast_masked_kernel[grid](
-        out32,
-        A,
-        scalar,
-        numel,
-        TILE=_EQ_SCALAR_FAST_TILE,
-        num_warps=4,
-        buffer_size_limit=8192,
-        unroll_num=16,
-        isCloseMemoryAsync=False,
-    )
-    out = torch.empty_like(A, dtype=torch.bool)
-    torch.ops.aten._copy_from(out32, out, False)
-    return out
-
-
-# ---------------------------------------------------------------------------
-# eq_ (in-place alias of eq.Tensor, e.g. `x.eq_(y)` on a float tensor).
-# torch keeps the input dtype and stores 0.0/1.0 (False/True) back into x.
-#
-# Before this change eq_ was NOT overridden by the kunlunxin backend, so it
-# fell to the generic ops/eq_.py wrapper (promotion ALWAYS_BOOL;
-# `arith.cmpf -> i1 -> bool` per lane, out0=A). On XPU a fp compare followed
-# by ANY use of the i1 result lowers to a per-lane slow path: the sibling
-# gt_/lt_ in-place family measured this traversal at 0.27-0.33x
-# dtype-equal-weight (big shapes as low as 0.07x, e.g. [10000,65536] fp16
-# gems ~22ms vs torch ~1.4ms).
-#
-# Fix (same single-kernel saturating-fp recipe as the committed in-place
-# lt_/ge_/gt_scalar_/gt_tensor_ family, no i1 ever materialized):
-#   1. generic in-place kernel with DEFAULT promotion + saturating fp
-#      arithmetic, under the in-place-safe CodeGenConfig below (the
-#      out-of-place config_ has isCloseMemoryAsync=False = async copy ON,
-#      which with in-place aliasing is the documented "noc idle timeout"
-#      deadlock, see the config_inplace_ note in lt.py / gt.py).
-#   2. unmasked flat-tile in-place fast kernel for fp16/fp32 contiguous
-#      tensors whose numel is an exact multiple of TILE (grid >= MIN_GRID):
-#      the always-true runtime mask of the codegen path would force the slow
-#      masked-memory channel, so a fixed pow2 TILE with no mask at all
-#      restores the fast DMA path (per lt.py/gt.py in-place probes).
-#   3. Equality has no gap direction, so the gt/lt `max(0, min(1, (x-y)*K))`
-#      shape cannot be used; instead saturate the *distance* (the same
-#      two-stage 1e32*1e32 = 1e64 factor as the gt_scalar_ in-place fast
-#      path):
-#        t   = min(1, |x - y| * 1e32 * 1e32)   -> 0 when x == y, 1 when x != y
-#        out = max(0, 1 - t)                   -> 1 when equal, 0 otherwise
-#      Every representable nonzero gap (down to the fp16 gap 2^-24, the bf16
-#      subnormal 2^-133 and the fp32 subnormal 2^-149 = 1.4e-45) saturates
-#      to a value >= 1, while a zero difference stays exactly 0. max/min on
-#      this backend prefer the non-NaN operand, so |NaN - y| = NaN collapses
-#      to False downstream (matching `NaN != anything`), +-0 == +-0 -> True,
-#      and equal +-inf pairs are exact. The slow i1/bool path is never
-#      materialized.
-config_inplace_ = CodeGenConfig(
-    512,
-    (65536, 65536, 65536),
-    32,
-    True,
-    prefer_1d_tile=True,
-    kunlunAutoGrid=True,
-    unroll_num=8,
-)
-
-
-@pointwise_dynamic(promotion_methods=[(0, 1, "DEFAULT")], config=config_inplace_)
 @triton.jit
 def eq_func_tensor_inplace(x, y):
     t = (x.to(tl.float32) - y.to(tl.float32)) * 1.0e32
@@ -354,6 +222,16 @@ def _eq_tensor_inplace_fast(A, B, numel):
 #      Every representable nonzero gap (down to the fp32/bf16 subnormals
 #      ~1.4e-45) saturates to >= 1. The slow i1/bool path is never
 #      materialized on the fast/saturate paths.
+config_inplace_ = CodeGenConfig(
+    512,
+    (65536, 65536, 65536),
+    32,
+    True,
+    prefer_1d_tile=True,
+    kunlunAutoGrid=True,
+    unroll_num=8,
+)
+
 @pointwise_dynamic(
     is_tensor=[True, False],
     promotion_methods=[(0, 1, "DEFAULT")],

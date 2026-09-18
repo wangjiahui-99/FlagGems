@@ -37,6 +37,25 @@ config_ = CodeGenConfig(
     unroll_num=8,
 )
 
+# Scalar-compare big-tile config (ported from eq.py, 2026-09-16). The generic
+# config_ DMAs only 1024-element LM tiles (gm2lm 2KB in / lm2gm 1KB out) and
+# unroll=8, capping gt_scalar at ~0.76x dtype-balanced on the memory-bound
+# large shapes. Larger LM buffer + unroll=16 widens each DMA burst and
+# amortizes the fence/setup overhead. Scoped to gt_func_scalar only so the
+# known-good gt() / gt_func_tensor_inplace / gt_func_scalar_inplace paths
+# (which use config_ / config_inplace_) are untouched.
+config_scalar_bigtile_ = CodeGenConfig(
+    1024,
+    (65536, 65536, 65536),
+    32,
+    True,
+    prefer_1d_tile=True,
+    isCloseMemoryAsync=False,
+    kunlunAutoGrid=True,
+    buffer_size_limit=16384,
+    unroll_num=16,
+)
+
 
 @pointwise_dynamic(
     promotion_methods=[(0, 1, "ALWAYS_BOOL")],
@@ -60,7 +79,7 @@ def gt(A, B):
 @pointwise_dynamic(
     is_tensor=[True, False],
     promotion_methods=[(0, 1, "ALWAYS_BOOL")],
-    config=config_,
+    config=config_scalar_bigtile_,
 )
 @triton.jit
 def gt_func_scalar(x, y):
@@ -69,28 +88,13 @@ def gt_func_scalar(x, y):
 
 def gt_scalar(A, B):
     logger.debug("GEMS_KUNLUNXIN GT_SCALAR")
-    numel = A.numel()
-    dtype = A.dtype
-    if (
-        A.is_contiguous()
-        and dtype in (torch.float16, torch.float32, torch.bfloat16)
-        and float(B) == float(torch.tensor(float(B), dtype=dtype).item())
-    ):
-        if (
-            numel >= _GT_SCALAR_FAST_TILE * _GT_SCALAR_MIN_GRID
-            and numel % _GT_SCALAR_FAST_TILE == 0
-        ):
-            # exact-multiple flat tiles (grid = numel / TILE >= MIN_GRID): no
-            # mask, no i1 -- a saturating fp32 store + vendor bool conversion.
-            return _gt_scalar_fast(A, float(B), (numel // _GT_SCALAR_FAST_TILE,))
-        if numel >= _GT_SCALAR_MASKED_MIN and numel % _GT_SCALAR_FAST_TILE != 0:
-            # non-multiple mid sizes (e.g. 2.56M): flat tiles with a real tail
-            # mask. The mask is genuine (tail elements), so the masked-memory
-            # path is the only penalty and the i1/bool-store catastrophe is
-            # still avoided.
-            return _gt_scalar_fast_masked(A, float(B), numel)
-    res = gt_func_scalar(A, B)
-    return res
+    os.environ["TRITONXPU_COMPARE_FUSION"] = "1"
+    os.environ["TRITONXPU_FP16_FAST"] = "1"
+    try:
+        return gt_func_scalar(A, B)
+    finally:
+        del os.environ["TRITONXPU_COMPARE_FUSION"]
+        del os.environ["TRITONXPU_FP16_FAST"]
 
 
 # ---------------------------------------------------------------------------
