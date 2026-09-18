@@ -7592,6 +7592,21 @@ ops:
   - Math
   stages:
   - alpha: '5.4'
+- id: isreal
+  description: |
+    Tests whether each element is real, i.e. whether its imaginary part is
+    zero, and returns a bool tensor. Real-valued dtypes are always True; for
+    complex dtypes the imaginary component is compared against an exact zero
+    (a negative zero counts as zero).
+  for:
+  - isreal
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.4'
 - id: ixor
   description: 'Computes the bitwise XOR of input tensors or a tensor and a scalar
     (inplace).
