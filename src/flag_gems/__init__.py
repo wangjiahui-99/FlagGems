@@ -1494,6 +1494,11 @@ _FULL_CONFIG = (
     ("upsample_nearest1d", upsample_nearest1d),
     ("upsample_nearest2d", upsample_nearest2d),
     ("upsample_nearest3d", upsample_nearest3d),
+    ("upsample_nearest3d_backward", upsample_nearest3d_backward),
+    (
+        "upsample_nearest3d_backward.grad_input",
+        upsample_nearest3d_backward_grad_input,
+    ),
     ("upsample_trilinear3d", upsample_trilinear3d),
     ("upsample_trilinear3d_backward", upsample_trilinear3d_backward),
     ("value_selecting_reduction_backward", value_selecting_reduction_backward),
