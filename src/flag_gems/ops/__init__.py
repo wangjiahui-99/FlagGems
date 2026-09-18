@@ -1084,6 +1084,7 @@ from flag_gems.ops.tan import tan, tan_
 from flag_gems.ops.tanh import tanh, tanh_, tanh_backward
 from flag_gems.ops.te_rmsnorm import te_rmsnorm_bwd, te_rmsnorm_fwd
 from flag_gems.ops.tensor_split import tensor_split
+from flag_gems.ops.tensordot import tensordot, tensordot_out
 from flag_gems.ops.thnn_fused_gru_cell_backward import (
     _thnn_fused_gru_cell_backward,
     _thnn_fused_gru_cell_backward_out,
@@ -2306,6 +2307,8 @@ __all__ = [
     "te_rmsnorm_bwd",
     "te_rmsnorm_fwd",
     "tensor_split",
+    "tensordot",
+    "tensordot_out",
     "threshold",
     "threshold_",
     "threshold_backward",
