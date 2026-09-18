@@ -104,6 +104,7 @@ from flag_gems.ops._linalg_slogdet import _linalg_slogdet
 from flag_gems.ops._list_to_tensor import _list_to_tensor
 from flag_gems.ops._make_dep_token import _make_dep_token
 from flag_gems.ops._masked_scale import _masked_scale
+from flag_gems.ops._masked_softmax import _masked_softmax
 from flag_gems.ops._masked_softmax_backward import _masked_softmax_backward
 from flag_gems.ops._native_batch_norm_legit import (
     _native_batch_norm_legit,
@@ -1254,6 +1255,7 @@ __all__ = [
     "_list_to_tensor",
     "_make_dep_token",
     "_masked_scale",
+    "_masked_softmax",
     "_masked_softmax_backward",
     "_native_batch_norm_legit",
     "_native_batch_norm_legit_functional",
