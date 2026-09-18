@@ -850,6 +850,7 @@ _FULL_CONFIG = (
     ("lcm_", lcm_),
     ("ldexp.out", ldexp_out),
     ("ldexp.Tensor", ldexp),
+    ("ldexp_", ldexp_),
     ("le.Scalar", le_scalar),
     ("le.Tensor", le),
     ("le_.Scalar", le_scalar_),
