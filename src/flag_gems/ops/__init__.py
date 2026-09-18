@@ -832,6 +832,7 @@ from flag_gems.ops.pinverse import pinverse
 from flag_gems.ops.pixel_shuffle import pixel_shuffle
 from flag_gems.ops.pixel_unshuffle import pixel_unshuffle, pixel_unshuffle_out
 from flag_gems.ops.poisson import poisson
+from flag_gems.ops.poisson_nll_loss import poisson_nll_loss
 from flag_gems.ops.polar import polar
 from flag_gems.ops.polygamma import polygamma, polygamma_, polygamma_out
 from flag_gems.ops.pow import (
@@ -2040,6 +2041,7 @@ __all__ = [
     "pixel_unshuffle",
     "pixel_unshuffle_out",
     "poisson",
+    "poisson_nll_loss",
     "polar",
     "polygamma",
     "polygamma_",
