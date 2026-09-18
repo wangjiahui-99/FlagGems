@@ -1062,6 +1062,7 @@ from flag_gems.ops.sum import sum, sum_dim, sum_dim_out, sum_out
 from flag_gems.ops.sum_to_size import sum_to_size
 from flag_gems.ops.svd import svd
 from flag_gems.ops.sym_constrain_range import sym_constrain_range
+from flag_gems.ops.sym_numel import sym_numel
 from flag_gems.ops.sym_size import sym_size
 from flag_gems.ops.sym_storage_offset import sym_storage_offset
 from flag_gems.ops.sym_stride import sym_stride
@@ -2262,6 +2263,7 @@ __all__ = [
     "SUPPORTED_FP8_DTYPE",
     "svd",
     "sym_constrain_range",
+    "sym_numel",
     "sym_size",
     "sym_storage_offset",
     "sym_stride",

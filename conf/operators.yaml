@@ -15404,6 +15404,19 @@ ops:
   - Tensor
   stages:
   - alpha: '5.4'
+- id: sym_numel
+  description: Returns the total number of elements of the input tensor.
+  for:
+  - sym_numel
+  marks:
+  - sym_numel
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.4'
 - id: sym_size
   description: 'Returns the size of the input tensor as a list of integers.
 

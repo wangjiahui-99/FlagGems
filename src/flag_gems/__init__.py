@@ -1415,6 +1415,7 @@ _FULL_CONFIG = (
     ("sum_to_size", sum_to_size),
     ("svd", svd),
     ("sym_constrain_range", sym_constrain_range),
+    ("sym_numel", sym_numel),
     ("sym_size", sym_size),
     ("sym_storage_offset", sym_storage_offset),
     ("sym_stride", sym_stride),
